@@ -1,1 +1,4 @@
-pymongo
+boto3
+qrcode 
+datetime
+uuid

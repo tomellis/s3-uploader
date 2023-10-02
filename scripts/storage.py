@@ -4,77 +4,84 @@ import os
 import re
 import modules.scripts as scripts
 import gradio as gr
-from pymongo import MongoClient
 import shlex
-from tssplit import tssplit
 
-mongo_host = os.environ.get('DB_HOST', 'localhost')
-mongo_port = int(os.environ.get('DB_PORT', 27017))
-mongo_username = os.environ.get('DB_USER', '')
-mongo_password = os.environ.get('DB_PASS', '')
+import boto3
+import qrcode
+import uuid
+from datetime import datetime
 
-creds = f"{mongo_username}:{mongo_password}@" if mongo_username and mongo_password else ""
-client = MongoClient(f"mongodb://{creds}{mongo_host}:{mongo_port}/")
+s3 = boto3.client('s3')
 
-
-def get_collection(database_name, collection_name):
-    db = client[database_name]
-    collection = db[collection_name]
-    return collection
-
+s3_bucket = os.environ.get('S3_BUCKET')
 
 class Scripts(scripts.Script):
     def title(self):
-        return "Mongo Storage"
+        return "S3 Uploader"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        checkbox_save_to_db = gr.inputs.Checkbox(label="Save to DB", default=False)
-        database_name = gr.inputs.Textbox(label="Database Name", default="StableDiffusion")
-        collection_name = gr.inputs.Textbox(label="Collection Name", default="Automatic1111")
-        return [checkbox_save_to_db, database_name, collection_name]
+        checkbox_save_to_s3 = gr.inputs.Checkbox(label="S3 Uploader: Save to S3", default=False)
+        return [checkbox_save_to_s3]
 
-    def postprocess(self, p, processed, checkbox_save_to_db, database_name, collection_name):
-        collection = get_collection(database_name, collection_name) if checkbox_save_to_db else None
-        if collection is None:
-            return True
-
+    def postprocess(self, p, processed, checkbox_save_to_s3):
         for i in range(len(processed.images)):
             # Extract image information
-            regex = r"Steps:.*$"
-            seed = processed.seed
             prompt = processed.prompt
-            neg_prompt = processed.negative_prompt
-            info = re.findall(regex, processed.info, re.M)[0]
-            input_dict = dict(tssplit(item, quote='"', delimiter=':', trim=' ') for item in
-                              tssplit(info, quote='"', delimiter=',', trim=' ', quote_keep=True))
-            steps = int(input_dict["Steps"])
-            seed = int(input_dict["Seed"])
-            sampler = input_dict["Sampler"]
-            cfg_scale = float(input_dict["CFG scale"])
-            size = tuple(map(int, input_dict["Size"].split("x")))
-            model_hash = input_dict["Model hash"]
-            model = input_dict["Model"]
-            lora_hashes = input_dict["Lora hashes"]
-
             image = processed.images[i]
             buffer = BytesIO()
             image.save(buffer, "png")
             image_bytes = buffer.getvalue()
 
-            collection.insert_one({
-                "prompt": prompt,
-                "negative_prompt": neg_prompt,
-                "steps": int(steps),
-                "seed": int(seed),
-                "sampler": sampler,
-                "cfg_scale": float(cfg_scale),
-                "size": size,
-                "model_hash": model_hash,
-                "model": model,
-                "lora_hashes": lora_hashes,
-                "image": image_bytes
-            })
+            # Generate UUID for image
+            uuid_str = str(uuid.uuid4())
+            # Get current date and time
+            now = datetime.now()
+            date_time = now.strftime("%Y%m%d-%H%M%S")
+            # Create file name with suffix
+            file_name = f"{uuid_str}-{date_time}.png" 
+
+            # Save buffer out to png file
+            with open(file_name, "wb") as outfile:
+                outfile.write(buffer.getbuffer())
+            
+            try:
+              # Upload file to S3
+              s3.upload_file(file_name, s3_bucket, file_name)
+
+              # Generate presigned URL to access uploaded file
+              url = s3.generate_presigned_url(
+                      ClientMethod='get_object',
+                      Params={
+                          'Bucket': s3_bucket,
+                          'Key': file_name
+                      })
+
+              # Generate QR code from presigned URL & upload to S3
+              img = qrcode.make(url)
+              qrcode_filename = 'qrcode-' + file_name
+              img.save(qrcode_filename)
+              s3.upload_file(qrcode_filename, s3_bucket, qrcode_filename)
+              qrcode_url = s3.generate_presigned_url(
+                      ClientMethod='get_object',
+                      Params={
+                          'Bucket': s3_bucket,
+                          'Key': qrcode_filename
+                      })
+
+            except Exception as e:
+              print(f"Error uploading to S3: {e}")
+              traceback.print_exc()
+              return False
+
+            # Print out the details
+            print(f"""
+               File Name: {file_name}
+               Prompt: {prompt}
+               URL: {url}
+               QRCode Image: {qrcode_url}
+               """)
+
         return True

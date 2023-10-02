@@ -1,31 +1,32 @@
 ## Introduction
 
-**db-storage1111 is an extension for [AUTOMATIC1111's Stable Diffusion Web UI](https://github.com/AUTOMATIC1111/stable-diffusion-webui).**
+**s3-uploader is an extension for [AUTOMATIC1111's Stable Diffusion Web UI](https://github.com/AUTOMATIC1111/stable-diffusion-webui).**
 
-It allows to store pictures to databases.At the moment it only supports MongoDB.
+It allows to store pictures in Amazon S3 and generate pre-signed URLs for those images and QR codes for users to download them directly.
+
+This was based off a DB Example provided [here](https://github.com/takoyaro/db-storage1111)
+
 ## Features
 
-- **Store images on a MongoDB instance**
+- **Upload images in Amazon S3**
+- **Generate Amazon S3 Pre-signed URLs**
+- **Generate QR Codes for the URLs**
 
 ## Installation
 
 
 1. Visit the **Extensions** tab of Automatic's WebUI.
 2. Visit the **Install from URL** subtab.
-3. Paste this repo's URL into the first field: `https://github.com/takoyaro/db-storage1111
+3. Paste this repo's URL into the first field: `https://github.com/tomellis/s3-uploader
 4. Click **Install**.
+5. Add IAM role to your ec2 instance to allow it to use S3
+6. Install additional python modules: boto3, qrcode
 
 ## Usage
 Set environment variables if needed before starting the app:
-| Variable | Default       |
-|----------|---------------|
-| `DB_HOST`  | `'localhost'` |
-| `DB_PORT`  | `27017`       |
-| `DB_USER`  | `""`          |
-| `DB_PASS`  | `""`          |
 
-Then, simply check the `Save to DB` checkbox and generate!
+```
+export S3_BUCKET=bucket_name
+```
+Then, simply check the `Save to S3` checkbox and generate!
 
-
-## Contributing
-I barely write any python, I have no doubt this extension could be improved and optimized. Feel free to submit PRs!
